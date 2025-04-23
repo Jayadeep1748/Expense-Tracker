@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Expense Tracker</title>
+    <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.development.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.development.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.20.6/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios@1.4.0/dist/axios.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        const App = () => {
+            const [token, setToken] = useState(localStorage.getItem('token') || '');
+            const [transactions, setTransactions] = useState([]);
+            const [isRegistering, setIsRegistering] = useState(false);
+            const [isResettingPassword, setIsResettingPassword] = useState(false);
+            const [resetToken, setResetToken] = useState(new URLSearchParams(window.location.search).get('token') || '');
+
+            const login = async (username, password) => {
+                try {
+                    const response = await axios.post('http://localhost:5000/login', { username, password });
+                    setToken(response.data.access_token);
+                    localStorage.setItem('token', response.data.access_token);
+                } catch (error) {
+                    console.error('Login failed:', error);
+                    alert('Invalid credentials');
+                }
+            };
+
+            const register = async (username, email, password) => {
+                try {
+                    await axios.post('http://localhost:5000/register', { username, email, password });
+                    alert('Registration successful! Please log in.');
+                    setIsRegistering(false);
+                } catch (error) {
+                    console.error('Registration failed:', error);
+                    alert('Registration failed: ' + (error.response?.data?.message || 'Unknown error'));
+                }
+            };
+
+            const requestPasswordReset = async (email) => {
+                try {
+                    await axios.post('http://localhost:5000/forgot-password', { email });
+                    alert('Password reset link sent to your email.');
+                    setIsResettingPassword(false);
+                } catch (error) {
+                    console.error('Password reset request failed:', error);
+                    alert('Failed to send reset link: ' + (error.response?.data?.message || 'Unknown error'));
+                }
+            };
+
+            const resetPassword = async (token, password) => {
+                try {
+                    await axios.post('http://localhost:5000/reset-password', { token, password });
+                    alert('Password reset successfully! Please log in.');
+                    setIsResettingPassword(false);
+                    setResetToken('');
+                    window.history.pushState({}, '', '/'); // Clear token from URL
+                } catch (error) {
+                    console.error('Password reset failed:', error);
+                    alert('Password reset failed: ' + (error.response?.data?.message || 'Unknown error'));
+                }
+            };
+
+            const addTransaction = async (transaction) => {
+                try {
+                    await axios.post('http://localhost:5000/transactions', transaction, {
+                        headers: { Authorization: `Bearer ${token}` }
+                    });
+                    fetchTransactions();
+                } catch (error) {
+                    console.error('Failed to add transaction:', error);
+                }
+            };
+
+            const fetchTransactions = async () => {
+                try {
+                    const response = await axios.get('http://localhost:5000/transactions', {
+                        headers: { Authorization: `Bearer ${token}` }
+                    });
+                    setTransactions(response.data);
+                } catch (error) {
+                    console.error('Failed to fetch transactions:', error);
+                }
+            };
+
+            useEffect(() => {
+                if (token) fetchTransactions();
+            }, [token]);
+
+            return (
+                <div className="container mx-auto p-4">
+                    {!token ? (
+                        isResettingPassword ? (
+                            resetToken ? (
+                                <ResetPasswordForm onReset={resetPassword} token={resetToken} onSwitchToLogin={() => setIsResettingPassword(false)} />
+                            ) : (
+                                <ForgotPasswordForm onRequestReset={requestPasswordReset} onSwitchToLogin={() => setIsResettingPassword(false)} />
+                            )
+                        ) : isRegistering ? (
+                            <RegisterForm onRegister={register} onSwitchToLogin={() => setIsRegistering(false)} />
+                        ) : (
+                            <LoginForm onLogin={login} onSwitchToRegister={() => setIsRegistering(true)} onSwitchToForgotPassword={() => setIsResettingPassword(true)} />
+                        )
+                    ) : (
+                        <div>
+                            <TransactionForm onSubmit={addTransaction} />
+                            <TransactionList transactions={transactions} />
+                            <SpendingChart transactions={transactions} />
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const LoginForm = ({ onLogin, onSwitchToRegister, onSwitchToForgotPassword }) => {
+            const [username, setUsername] = useState('');
+            const [password, setPassword] = useState('');
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                onLogin(username, password);
+            };
+
+            return (
+                <div className="max-w-md mx-auto">
+                    <h2 className="text-2xl font-bold mb-4">Login</h2>
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        <input
+                            type="text"
+                            placeholder="Username"
+                            value={username}
+                            onChange={(e) => setUsername(e.target.value)}
+                            className="w-full p-2 border rounded"
+                            required
+                        />
+                        <input
+                            type="password"
+                            placeholder="Password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            className="w-full p-2 border rounded"
+                            required
+                        />
+                        <button type="submit" className="w-full bg-blue-500 text-white p-2 rounded">
+                            Login
+                        </button>
+                    </form>
+                    <p className="mt-4 text-center">
+                        Don't have an account?{' '}
+                        <button
+                            onClick={onSwitchToRegister}
+                            className="text-blue-500 hover:underline"
+                        >
+                            Register
+                        </button>
+                    </p>
+                    <p className="mt-2 text-center">
+                        Forgot your password?{' '}
+                        <button
+                            onClick={onSwitchToForgotPassword}
+                            className="text-blue-500 hover:underline"
+                        >
+                            Reset Password
+                        </button>
+                    </p>
+                </div>
+            );
+        };
+
+        const RegisterForm = ({ onRegister, onSwitchToLogin }) => {
+            const [username, setUsername] = useState('');
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                onRegister(username, email, password);
+            };
+
+            return (
+                <div className="max-w-md mx-auto">
+                    <h2 className="text-2xl font-bold mb-4">Register</h2>
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        <input
+                            type="text"
+                            placeholder="Username"
+                            value={username}
+                            onChange={(e) => setUsername(e.target.value)}
+                            className="w-full p-2 border rounded"
+                            required
+                        />
+                        <input
+                            type="email"
+                            placeholder="Email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            className="w-full p-2 border rounded"
+                            required
+                        />
+                        <input
+                            type="password"
+                            placeholder="Password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            className="w-full p-2 border rounded"
+                            required
+                        />
+                        <button type="submit" className="w-full bg-blue-500 text-white p-2 rounded">
+                            Register
+                        </button>
+                    </form>
+                    <p className="mt-4 text-center">
+                        Already have an account?{' '}
+                        <button
+                            onClick={onSwitchToLogin}
+                            className="text-blue-500 hover:underline"
+                        >
+                            Login
+                        </button>
+                    </p>
+                </div>
+            );
+        };
+
+        const ForgotPasswordForm = ({ onRequestReset, onSwitchToLogin }) => {
+            const [email, setEmail] = useState('');
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                onRequestReset(email);
+            };
+
+            return (
+                <div className="max-w-md mx-auto">
+                    <h2 className="text-2xl font-bold mb-4">Forgot Password</h2>
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        <input
+                            type="email"
+                            placeholder="Email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            className="w-full p-2 border rounded"
+                            required
+                        />
+                        <button type="submit" className="w-full bg-blue-500 text-white p-2 rounded">
+                            Send Reset Link
+                        </button>
+                    </form>
+                    <p className="mt-4 text-center">
+                        Back to{' '}
+                        <button
+                            onClick={onSwitchToLogin}
+                            className="text-blue-500 hover:underline"
+                        >
+                            Login
+                        </button>
+                    </p>
+                </div>
+            );
+        };
+
+        const ResetPasswordForm = ({ onReset, token, onSwitchToLogin }) => {
+            const [password, setPassword] = useState('');
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                onReset(token, password);
+            };
+
+            return (
+                <div className="max-w-md mx-auto">
+                    <h2 className="text-2xl font-bold mb-4">Reset Password</h2>
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        <input
+                            type="password"
+                            placeholder="New Password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            className="w-full p-2 border rounded"
+                            required
+                        />
+                        <button type="submit" className="w-full bg-blue-500 text-white p-2 rounded">
+                            Reset Password
+                        </button>
+                    </form>
+                    <p className="mt-4 text-center">
+                        Back to{' '}
+                        <button
+                            onClick={onSwitchToLogin}
+                            className="text-blue-500 hover:underline"
+                        >
+                            Login
+                        </button>
+                    </p>
+                </div>
+            );
+        };
+
+        const TransactionForm = ({ onSubmit }) => {
+            const [amount, setAmount] = useState('');
+            const [date, setDate] = useState('');
+            const [category, setCategory] = useState('');
+            const [type, setType] = useState('expense');
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                onSubmit({ amount, date, category_id: category, type });
+                setAmount('');
+                setDate('');
+                setCategory('');
+            };
+
+            return (
+                <div className="max-w-md mx-auto mb-8">
+                    <h2 className="text-2xl font-bold mb-4">Add Transaction</h2>
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        <input
+                            type="number"
+                            placeholder="Amount"
+                            value={amount}
+                            onChange={(e) => setAmount(e.target.value)}
+                            className="w-full p-2 border rounded"
+                        />
+                        <input
+                            type="date"
+                            value={date}
+                            onChange={(e) => setDate(e.target.value)}
+                            className="w-full p-2 border rounded"
+                        />
+                        <input
+                            type="text"
+                            placeholder="Category"
+                            value={category}
+                            onChange={(e) => setCategory(e.target.value)}
+                            className="w-full p-2 border rounded"
+                        />
+                        <select
+                            value={type}
+                            onChange={(e) => setType(e.target.value)}
+                            className="w-full p-2 border rounded"
+                        >
+                            <option value="expense">Expense</option>
+                            <option value="income">Income</option>
+                        </select>
+                        <button type="submit" className="w-full bg-green-500 text-white p-2 rounded">
+                            Add Transaction
+                        </button>
+                    </form>
+                </div>
+            );
+        };
+
+        const TransactionList = ({ transactions }) => (
+            <div className="max-w-2xl mx-auto mb-8">
+                <h2 className="text-2xl font-bold mb-4">Transactions</h2>
+                <ul className="space-y-2">
+                    {transactions.map((t) => (
+                        <li key={t.id} className="p-2 border rounded">
+                            {t.date} - {t.amount} ({t.type}) - {t.category}
+                        </li>
+                    ))}
+                </ul>
+            </div>
+        );
+
+        const SpendingChart = ({ transactions }) => {
+            const canvasRef = React.useRef(null);
+            useEffect(() => {
+                const ctx = canvasRef.current.getContext('2d');
+                const categories = [...new Set(transactions.map((t) => t.category))];
+                const data = categories.map((cat) =>
+                    transactions
+                        .filter((t) => t.category === cat && t.type === 'expense')
+                        .reduce((sum, t) => sum + t.amount, 0)
+                );
+
+                new Chart(ctx, {
+                    type: 'pie',
+                    data: {
+                        labels: categories,
+                        datasets: [{
+                            data,
+                            backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0'],
+                        }],
+                    },
+                });
+            }, [transactions]);
+
+            return (
+                <div className="max-w-2xl mx-auto">
+                    <h2 className="text-2xl font-bold mb-4">Spending by Category</h2>
+                    <canvas ref={canvasRef}></canvas>
+                </div>
+            );
+        };
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
